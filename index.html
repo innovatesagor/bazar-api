@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Bazar Pro Native - Thermal Ready</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@500;600;700&display=swap');
+        
+        :root {
+            --bg-body: #f8fafc;
+            --brand-primary: #f59e0b; 
+            --brand-dark: #1e1b4b;
+        }
+
+        body { 
+            font-family: 'Hind Siliguri', sans-serif; 
+            background-color: #0f172a; 
+            margin: 0; overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .mobile-shell { 
+            width: 100%; max-width: 430px; background: var(--bg-body); height: 100vh; 
+            display: flex; flex-direction: column; position: relative; margin: 0 auto; 
+        }
+
+        .content-scroll { 
+            flex: 1; overflow-y: auto; padding: 6px 12px 110px 12px; 
+            scrollbar-width: none; 
+        }
+        .content-scroll::-webkit-scrollbar { display: none; }
+
+        .native-item-card {
+            background: #ffffff; border-radius: 12px; padding: 4px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border: 1.5px solid #e2e8f0; height: 62px; transition: all 0.2s ease;
+            position: relative;
+        }
+        .card-active {
+            border: 2px solid var(--brand-primary) !important;
+            background: #fffbeb !important;
+            box-shadow: 0 4px 10px rgba(245, 158, 11, 0.15);
+        }
+
+        .cart-item-row {
+            background: #ffffff; border-radius: 10px; padding: 4px 8px;
+            display: flex; align-items: center; gap: 8px; border: 1px solid #f1f5f9;
+            margin-bottom: 4px;
+        }
+
+        .qty-btn {
+            width: 24px; height: 24px; background: #f8fafc; border: 1px solid #e2e8f0; 
+            border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold;
+        }
+
+        .note-overlay {
+            position: absolute; inset: 0; background: rgba(30, 27, 75, 0.4);
+            backdrop-filter: blur(4px); z-index: 100;
+            display: flex; align-items: center; justify-content: center; padding: 20px;
+        }
+
+        @media print {
+            @page { size: 55mm auto; margin: 0; }
+            body { background: white; margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            #receipt-print { 
+                display: block !important; 
+                width: 55mm; 
+                padding: 3mm; 
+                font-size: 11px; 
+                line-height: 1.3; 
+                color: #000;
+                background: white;
+            }
+            .dashed { border-top: 1px dashed #000; margin: 5px 0; width: 100%; }
+            table { width: 100%; border-collapse: collapse; }
+            td { padding: 2px 0; vertical-align: top; }
+        }
+    </style>
+</head>
+<body x-data="bazarApp()">
+
+    <div class="mobile-shell">
+        
+        <header class="pt-8 px-5 pb-2 bg-white/95 backdrop-blur-md sticky top-0 z-50 no-print border-b border-slate-100">
+            <div class="flex justify-between items-center mb-2">
+                <h1 class="text-lg font-black text-indigo-950">বাজার <span class="text-amber-500">প্রো</span></h1>
+                <div class="flex gap-1">
+                    <button @click="fetchData()" class="p-1.5 rounded-lg bg-slate-50 border active:bg-slate-100"><i data-lucide="refresh-cw" class="w-3 h-3 text-slate-500"></i></button>
+                    <button @click="clearList()" class="p-1.5 rounded-lg bg-rose-50 border border-rose-100 active:bg-rose-100"><i data-lucide="trash-2" class="w-3 h-3 text-rose-400"></i></button>
+                </div>
+            </div>
+
+            <div x-show="currentPage === 'shop'">
+                <div class="bg-slate-100 rounded-lg flex items-center px-3 py-1.5 mb-2 border border-slate-200">
+                    <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 mr-2"></i>
+                    <input type="text" x-model="searchQuery" placeholder="খুঁজুন..." class="bg-transparent border-none outline-none text-[11px] w-full font-bold">
+                </div>
+                
+                <div class="flex gap-1 overflow-x-auto no-scrollbar pb-1">
+                    <template x-for="cat in ['সব', ...categories]" :key="cat">
+                        <button @click="selectedCategory = cat" 
+                            :class="selectedCategory === cat ? 'bg-indigo-950 text-white' : 'bg-white text-slate-500 border border-slate-200'" 
+                            class="px-2.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap" x-text="cat"></button>
+                    </template>
+                </div>
+            </div>
+        </header>
+
+        <main class="content-scroll no-scrollbar no-print">
+            <div x-show="currentPage === 'shop'" class="grid grid-cols-3 gap-2 pt-1">
+                <template x-for="item in filteredItems" :key="item.id">
+                    <button @click="addItem(item)" 
+                        class="native-item-card" 
+                        :class="isInCart(item.name) ? 'card-active' : ''">
+                        
+                        <div x-show="isInCart(item.name)" class="absolute top-1 right-1">
+                            <div class="bg-amber-500 rounded-full p-0.5">
+                                <i data-lucide="check" class="w-2.5 h-2.5 text-white stroke-[4]"></i>
+                            </div>
+                        </div>
+
+                        <div class="font-bold text-indigo-950 text-[12px] leading-tight mb-0.5" x-text="item.name"></div>
+                        <div class="text-[8px] text-amber-600 font-bold bg-amber-50 px-1 rounded border border-amber-100" x-text="item.unit"></div>
+                    </button>
+                </template>
+            </div>
+
+            <div x-show="currentPage === 'cart'" class="pt-1">
+                <div class="px-1 mb-2 flex justify-between items-center">
+                    <h2 class="text-md font-black text-indigo-950 tracking-tight uppercase">নির্বাচিত তালিকা</h2>
+                    <span class="text-[9px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full" x-text="activeList.length + ' টি'"></span>
+                </div>
+                <template x-for="item in activeList" :key="item.id">
+                    <div class="cart-item-row shadow-sm">
+                        <div class="flex-1">
+                            <h4 class="font-bold text-indigo-950 text-[13px] leading-none" x-text="item.name"></h4>
+                            <span class="text-[8px] text-slate-400 font-bold uppercase" x-text="item.unit"></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button @click="updateQty(item.id, -1)" class="qty-btn">-</button>
+                            <span class="w-4 text-center font-black text-[12px] text-indigo-950" x-text="item.qty"></span>
+                            <button @click="updateQty(item.id, 1)" class="qty-btn">+</button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </main>
+
+        <div x-show="showNoteModal" class="note-overlay no-print" x-transition>
+            <div class="bg-white w-[85%] rounded-xl p-4 shadow-2xl border border-amber-100">
+                <h3 class="text-md font-bold text-indigo-950 mb-3">নোট (ঐচ্ছিক)</h3>
+                <textarea x-model="receiptNote" placeholder="নাম বা অন্য কিছু..." class="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-bold outline-none h-20 mb-3"></textarea>
+                <div class="flex gap-2">
+                    <button @click="showNoteModal = false" class="flex-1 py-2 bg-slate-100 rounded-lg font-bold text-slate-500 text-[10px]">বাতিল</button>
+                    <button @click="confirmPrint()" class="flex-1 py-2 bg-indigo-950 text-amber-400 rounded-lg font-bold text-[10px]">প্রিন্ট</button>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="currentPage === 'cart' && activeList.length > 0" class="absolute bottom-[80px] right-0 left-0 flex justify-center no-print pointer-events-none">
+            <button @click="showNoteModal = true" class="pointer-events-auto bg-indigo-950 text-amber-400 px-5 py-2 rounded-full text-[10px] font-black shadow-lg border border-amber-400/20 flex items-center gap-2">
+                <i data-lucide="printer" class="w-3.5 h-3.5"></i> প্রিন্ট ইনভয়েস
+            </button>
+        </div>
+
+        <nav class="absolute bottom-4 left-12 right-12 no-print flex gap-2 p-1 bg-indigo-950 rounded-xl shadow-xl">
+            <button @click="currentPage = 'shop'" :class="currentPage === 'shop' ? 'bg-amber-500 text-white' : 'text-slate-400'" class="flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all">
+                <i data-lucide="layout-grid" class="w-4 h-4"></i><span class="text-[9px] font-bold uppercase">পণ্য</span>
+            </button>
+            <button @click="currentPage = 'cart'" :class="currentPage === 'cart' ? 'bg-amber-500 text-white' : 'text-slate-400'" class="flex-1 py-2 rounded-lg flex items-center justify-center gap-2 relative transition-all">
+                <i data-lucide="shopping-cart" class="w-4 h-4"></i><span class="text-[9px] font-bold uppercase">কার্ট</span>
+                <span x-show="activeList.length > 0" class="absolute -top-1 -right-1 bg-rose-500 text-white text-[7px] w-3.5 h-3.5 rounded-full flex items-center justify-center font-black" x-text="activeList.length"></span>
+            </button>
+        </nav>
+
+        <div id="receipt-print" class="hidden">
+            <center><b style="font-size: 14px; display: block;">খরচের লিস্ট</b><span style="font-size: 9px;" x-text="new Date().toLocaleString('bn-BD')"></span></center>
+            <div class="dashed"></div>
+            <table width="100%">
+                <template x-for="item in activeList" :key="item.id">
+                    <tr><td x-text="item.name"></td><td align="right" style="font-weight: bold;" x-text="item.qty + ' ' + item.unit"></td></tr>
+                </template>
+            </table>
+            <div class="dashed"></div>
+            <template x-if="receiptNote">
+                <div style="font-size: 10px; margin-top: 4px;"><b>নোট:</b> <span x-text="receiptNote"></span><div class="dashed"></div></div>
+            </template>
+            <div style="height: 10mm;"></div> 
+        </div>
+    </div>
+
+    <script>
+        const db = new Dexie("BazarSmartFinalV22");
+        db.version(1).stores({ list: '++id, name, qty, unit, category' });
+
+        function bazarApp() {
+            return {
+                currentPage: 'shop', searchQuery: '', selectedCategory: 'সব', 
+                activeList: [], catalog: [], categories: [],
+                showNoteModal: false, receiptNote: '', bluetoothDevice: null,
+
+                async init() {
+                    await this.fetchData();
+                    this.load();
+                    lucide.createIcons();
+                },
+
+                async fetchData() {
+                    const fallback = [{"id":1,"name":"চাল","unit":"কেজি","category":"নিত্যপণ্য"},{"id":13,"name":"পেঁয়াজ","unit":"কেজি","category":"মসলা"}];
+                    try {
+                        const res = await fetch('https://raw.githubusercontent.com/innovatesagor/bazar-api/main/items.json');
+                        this.catalog = res.ok ? await res.json() : fallback;
+                    } catch { this.catalog = fallback; }
+                    this.categories = [...new Set(this.catalog.map(i => i.category))];
+                    this.$nextTick(() => lucide.createIcons());
+                },
+
+                async load() { this.activeList = await db.list.toArray(); this.$nextTick(() => lucide.createIcons()); },
+                isInCart(name) { return this.activeList.some(item => item.name === name); },
+                get filteredItems() {
+                    return this.catalog.filter(i => (this.selectedCategory === 'সব' || i.category === this.selectedCategory) && i.name.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                },
+                async addItem(i) {
+                    const ex = await db.list.where('name').equals(i.name).first();
+                    ex ? await db.list.update(ex.id, {qty: ex.qty+1}) : await db.list.add({name: i.name, unit: i.unit, category: i.category, qty:1});
+                    this.load();
+                },
+                async updateQty(id, c) {
+                    const i = await db.list.get(id);
+                    (i.qty + c <= 0) ? await db.list.delete(id) : await db.list.update(id, {qty: i.qty+c});
+                    this.load();
+                },
+                async clearList() { if(confirm('লিস্ট মুছবেন?')) { await db.list.clear(); this.load(); } },
+
+                async confirmPrint() {
+                    this.showNoteModal = false;
+                    // Try Web Bluetooth first
+                    if (navigator.bluetooth) {
+                        try {
+                            await this.printDirectBT();
+                        } catch (e) {
+                            console.log("BT Print failed or cancelled, using system print.");
+                            this.printSystem();
+                        }
+                    } else {
+                        this.printSystem();
+                    }
+                },
+
+                printSystem() {
+                    setTimeout(() => { window.print(); this.receiptNote = ''; }, 300);
+                },
+
+                async printDirectBT() {
+                    if (!this.bluetoothDevice) {
+                        this.bluetoothDevice = await navigator.bluetooth.requestDevice({
+                            acceptAllDevices: true,
+                            optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
+                        });
+                    }
+                    const server = await this.bluetoothDevice.gatt.connect();
+                    const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+                    const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
+
+                    let encoder = new TextEncoder();
+                    let text = '\x1B\x40\x1B\x61\x01' + 'BAZAR PRO\n' + new Date().toLocaleString('bn-BD') + '\n--------------------------------\n';
+                    this.activeList.forEach(i => {
+                        text += i.name + '  ' + i.qty + ' ' + i.unit + '\n';
+                    });
+                    text += '--------------------------------\n' + (this.receiptNote ? 'Note: ' + this.receiptNote + '\n' : '') + '\x0A\x0A\x0A\x1D\x56\x00';
+                    
+                    await characteristic.writeValue(encoder.encode(text));
+                    this.receiptNote = '';
+                }
+            }
+        }
+    </script>
+</body>
+</html>
